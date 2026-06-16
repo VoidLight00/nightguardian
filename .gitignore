@@ -1,0 +1,12 @@
+# Runtime data (user-specific)
+logs/
+manifest/
+sessions.json
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
