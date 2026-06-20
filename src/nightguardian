@@ -27,6 +27,7 @@ Commands:
   simulate              Simulate a rate-limit detection (test mode)
   notify <slack|none>   Configure notification method
   checkpoint <interval> Set checkpoint auto-save interval (e.g. 5min)
+  autostart <on|off|status>  로그인 자동시작(LaunchAgent) 등록/해제/상태
 
 Examples:
   nightguardian install
@@ -231,6 +232,54 @@ cmd_simulate() {
 }
 
 # ───────────────────────────────────────────────────────────────
+cmd_autostart() {
+  local action="${1:-on}"
+  local label="com.voidlight.nightguardian"
+  local plist_dst="${HOME}/Library/LaunchAgents/${label}.plist"
+  local plist_src="${CONFIG_DIR}/config/${label}.plist"
+  local uid; uid="$(id -u)"
+
+  case "$action" in
+    on|install|enable)
+      if [ ! -f "$plist_src" ]; then
+        log_error "plist 템플릿 없음: ${plist_src}"
+        exit 1
+      fi
+      mkdir -p "${HOME}/Library/LaunchAgents"
+      # HOME_PLACEHOLDER → 실제 HOME 치환하여 설치
+      sed "s#HOME_PLACEHOLDER#${HOME}#g" "$plist_src" > "$plist_dst"
+      log_info "LaunchAgent 설치: ${plist_dst}"
+      # 기존 등록 제거 후 재등록(멱등)
+      launchctl bootout "gui/${uid}/${label}" 2>/dev/null || true
+      if launchctl bootstrap "gui/${uid}" "$plist_dst" 2>/dev/null; then
+        log_ok "자동시작 등록됨 (로그인 시 + 60초마다 생존 점검)."
+      else
+        # 구형 폴백
+        launchctl load -w "$plist_dst" 2>/dev/null || true
+        log_ok "자동시작 등록됨 (load -w 폴백)."
+      fi
+      launchctl kickstart "gui/${uid}/${label}" 2>/dev/null || true
+      ;;
+    off|uninstall|disable)
+      launchctl bootout "gui/${uid}/${label}" 2>/dev/null || launchctl unload -w "$plist_dst" 2>/dev/null || true
+      rm -f "$plist_dst"
+      log_ok "자동시작 해제됨 (데몬은 계속 실행 중. 중지하려면 'nightguardian stop')."
+      ;;
+    status)
+      if launchctl print "gui/${uid}/${label}" >/dev/null 2>&1; then
+        log_ok "자동시작 등록 상태: ON"
+      else
+        log_warn "자동시작 등록 상태: OFF"
+      fi
+      ;;
+    *)
+      log_error "Unknown autostart action: ${action} (on|off|status)"
+      exit 1
+      ;;
+  esac
+}
+
+# ───────────────────────────────────────────────────────────────
 cmd_notify() {
   local method="${1:-none}"
   log_info "Notification method set to: ${method}"
@@ -263,6 +312,7 @@ case "$command" in
   simulate)              cmd_simulate ;;
   notify)                cmd_notify "$@" ;;
   checkpoint)            cmd_checkpoint "$@" ;;
+  autostart)             cmd_autostart "$@" ;;
   --help|-h|help|"")     usage ;;
   *)
     log_error "Unknown command: $command"
