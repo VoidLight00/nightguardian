@@ -1,11 +1,11 @@
 {
-  "_comment": "이 파일을 config/sessions.json 으로 복사한 뒤 tmux 창 번호(키)별로 채우세요. sessions.json 은 .gitignore 로 추적 제외됩니다.",
-  "1": {
-    "name": "예시 세션 A",
-    "resume_prompt": "이전 작업 상태를 확인하고 중단된 지점부터 이어서 진행해줘."
+  "_comment": "Copy this file to config/sessions.json. Keys are exact tmux session names, not window or pane numbers. NightGuardian discovers panes automatically and pins each incident to its pane ID.",
+  "project-a": {
+    "name": "Example project",
+    "resume_prompt": "Continue from the interrupted point. Review the current state first, then complete the remaining work."
   },
-  "2": {
-    "name": "예시 세션 B",
-    "resume_prompt": "직전 단계 결과를 점검하고 남은 TODO를 마저 처리해줘."
+  "research": {
+    "name": "Research session",
+    "resume_prompt": "Review the last completed step, then continue the remaining research and verification."
   }
 }

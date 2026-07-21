@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.voidlight.nightguardian</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>HOME_PLACEHOLDER/.forgechain-nightguardian/bin/keepalive.sh</string>
+  </array>
+
+  <!-- 로그인 시 자동 시작 -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- 60초마다 생존 점검(죽었으면 재시작). KeepAlive 의 급속 재실행 throttle 회피. -->
+  <key>StartInterval</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>HOME_PLACEHOLDER/.forgechain-nightguardian/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>HOME_PLACEHOLDER/.forgechain-nightguardian/logs/launchd.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

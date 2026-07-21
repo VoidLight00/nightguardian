@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
-# NightGuardian CLI v1.0
+# NightGuardian CLI v1.2
 # Usage: nightguardian [command] [options]
 # ═══════════════════════════════════════════════════════════════
 
@@ -10,6 +10,8 @@ CONFIG_DIR="${HOME}/.forgechain-nightguardian"
 BIN_DIR="${CONFIG_DIR}/bin"
 LOG_DIR="${CONFIG_DIR}/logs"
 MANIFEST_DIR="${CONFIG_DIR}/manifest"
+SOURCE_DIR="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0" 2>/dev/null || printf '%s' "$0")")" 2>/dev/null && pwd -P)"
+PROJECT_DIR="$(cd "${SOURCE_DIR}/.." 2>/dev/null && pwd -P)"
 GUARDIAN_BIN="${BIN_DIR}/guardian-watch.sh"
 TMUX_SESSION="forge-night"
 
@@ -24,9 +26,10 @@ Commands:
   restart               Restart the guardian
   status                Show current guardian status + recent logs
   logs                  Tail the guardian log file
-  simulate              Simulate a rate-limit detection (test mode)
+  verify                Run the fail-closed master QA gate
   notify <slack|none>   Configure notification method
   checkpoint <interval> Set checkpoint auto-save interval (e.g. 5min)
+  autostart <on|off|status>  로그인 자동시작(LaunchAgent) 등록/해제/상태
 
 Examples:
   nightguardian install
@@ -121,22 +124,21 @@ cmd_status() {
   echo "  Sessions config: ${CONFIG_DIR}/config/sessions.json"
   echo "  Log file:        ${LOG_DIR}/guardian.log"
 
-  # Active rate-limited sessions
+  # Active rate-limited panes
   local waiting_count
-  waiting_count=$(find "$MANIFEST_DIR" -name 'session_*.state' 2>/dev/null | wc -l | tr -d ' ')
-  echo "  Waiting sessions: ${waiting_count}"
+  waiting_count=$(find "$MANIFEST_DIR" -name 'pane_*.state' 2>/dev/null | wc -l | tr -d ' ')
+  echo "  Waiting panes:    ${waiting_count}"
 
   if [ "$waiting_count" -gt 0 ]; then
     echo "  ──────────────────────────────────────────────────────────"
-    for f in "$MANIFEST_DIR"/session_*.state; do
+    for f in "$MANIFEST_DIR"/pane_*.state; do
       [ -f "$f" ] || continue
-      local sess reset_epoch phase
-      sess=$(basename "$f" .state | sed 's/session_//')
-      phase=$(sed -n '1p' "$f")
-      reset_epoch=$(sed -n '2p' "$f")
-      local human_reset
+      local pane session reset_epoch human_reset
+      pane=$(grep '^pane_id=' "$f" | cut -d= -f2-)
+      session=$(grep '^session=' "$f" | cut -d= -f2-)
+      reset_epoch=$(grep '^reset_epoch=' "$f" | cut -d= -f2-)
       human_reset=$(TZ=Asia/Seoul date -r "$reset_epoch" '+%H:%M %Z' 2>/dev/null || date -d "@$reset_epoch" '+%H:%M %Z' 2>/dev/null || echo "epoch:$reset_epoch")
-      echo "    📵 ${sess}: waiting until ${human_reset}"
+      echo "    ${session} ${pane}: waiting until ${human_reset}"
     done
   fi
 
@@ -231,6 +233,63 @@ cmd_simulate() {
 }
 
 # ───────────────────────────────────────────────────────────────
+cmd_autostart() {
+  local action="${1:-on}"
+  local label="com.voidlight.nightguardian"
+  local plist_dst="${HOME}/Library/LaunchAgents/${label}.plist"
+  local plist_src="${CONFIG_DIR}/config/${label}.plist"
+  local uid; uid="$(id -u)"
+
+  case "$action" in
+    on|install|enable)
+      if [ ! -f "$plist_src" ]; then
+        log_error "plist 템플릿 없음: ${plist_src}"
+        exit 1
+      fi
+      mkdir -p "${HOME}/Library/LaunchAgents"
+      # HOME_PLACEHOLDER → 실제 HOME 치환하여 설치
+      sed "s#HOME_PLACEHOLDER#${HOME}#g" "$plist_src" > "$plist_dst"
+      log_info "LaunchAgent 설치: ${plist_dst}"
+      # 기존 등록 제거 후 재등록(멱등)
+      launchctl bootout "gui/${uid}/${label}" 2>/dev/null || true
+      if launchctl bootstrap "gui/${uid}" "$plist_dst" 2>/dev/null; then
+        log_ok "자동시작 등록됨 (로그인 시 + 60초마다 생존 점검)."
+      else
+        # 구형 폴백
+        launchctl load -w "$plist_dst" 2>/dev/null || true
+        log_ok "자동시작 등록됨 (load -w 폴백)."
+      fi
+      launchctl kickstart "gui/${uid}/${label}" 2>/dev/null || true
+      ;;
+    off|uninstall|disable)
+      launchctl bootout "gui/${uid}/${label}" 2>/dev/null || launchctl unload -w "$plist_dst" 2>/dev/null || true
+      rm -f "$plist_dst"
+      log_ok "자동시작 해제됨 (데몬은 계속 실행 중. 중지하려면 'nightguardian stop')."
+      ;;
+    status)
+      if launchctl print "gui/${uid}/${label}" >/dev/null 2>&1; then
+        log_ok "자동시작 등록 상태: ON"
+      else
+        log_warn "자동시작 등록 상태: OFF"
+      fi
+      ;;
+    *)
+      log_error "Unknown autostart action: ${action} (on|off|status)"
+      exit 1
+      ;;
+  esac
+}
+
+# ───────────────────────────────────────────────────────────────
+cmd_verify() {
+  if [ ! -x "${PROJECT_DIR}/gates/verify_nightguardian.sh" ]; then
+    log_error "Master gate not found: ${PROJECT_DIR}/gates/verify_nightguardian.sh"
+    exit 1
+  fi
+  NIGHTGUARDIAN_CLI_VERIFY=1 bash "${PROJECT_DIR}/gates/verify_nightguardian.sh" "$PROJECT_DIR"
+}
+
+# ───────────────────────────────────────────────────────────────
 cmd_notify() {
   local method="${1:-none}"
   log_info "Notification method set to: ${method}"
@@ -260,9 +319,11 @@ case "$command" in
   restart)               cmd_restart ;;
   status)                cmd_status ;;
   logs)                  cmd_logs ;;
+  verify)                cmd_verify ;;
   simulate)              cmd_simulate ;;
   notify)                cmd_notify "$@" ;;
   checkpoint)            cmd_checkpoint "$@" ;;
+  autostart)             cmd_autostart "$@" ;;
   --help|-h|help|"")     usage ;;
   *)
     log_error "Unknown command: $command"
