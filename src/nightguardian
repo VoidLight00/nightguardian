@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
-# NightGuardian CLI v1.0
+# NightGuardian CLI v1.2
 # Usage: nightguardian [command] [options]
 # ═══════════════════════════════════════════════════════════════
 
@@ -10,6 +10,8 @@ CONFIG_DIR="${HOME}/.forgechain-nightguardian"
 BIN_DIR="${CONFIG_DIR}/bin"
 LOG_DIR="${CONFIG_DIR}/logs"
 MANIFEST_DIR="${CONFIG_DIR}/manifest"
+SOURCE_DIR="$(cd "$(dirname "$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$0" 2>/dev/null || printf '%s' "$0")")" 2>/dev/null && pwd -P)"
+PROJECT_DIR="$(cd "${SOURCE_DIR}/.." 2>/dev/null && pwd -P)"
 GUARDIAN_BIN="${BIN_DIR}/guardian-watch.sh"
 TMUX_SESSION="forge-night"
 
@@ -24,7 +26,7 @@ Commands:
   restart               Restart the guardian
   status                Show current guardian status + recent logs
   logs                  Tail the guardian log file
-  simulate              Simulate a rate-limit detection (test mode)
+  verify                Run the fail-closed master QA gate
   notify <slack|none>   Configure notification method
   checkpoint <interval> Set checkpoint auto-save interval (e.g. 5min)
   autostart <on|off|status>  로그인 자동시작(LaunchAgent) 등록/해제/상태
@@ -122,22 +124,21 @@ cmd_status() {
   echo "  Sessions config: ${CONFIG_DIR}/config/sessions.json"
   echo "  Log file:        ${LOG_DIR}/guardian.log"
 
-  # Active rate-limited sessions
+  # Active rate-limited panes
   local waiting_count
-  waiting_count=$(find "$MANIFEST_DIR" -name 'session_*.state' 2>/dev/null | wc -l | tr -d ' ')
-  echo "  Waiting sessions: ${waiting_count}"
+  waiting_count=$(find "$MANIFEST_DIR" -name 'pane_*.state' 2>/dev/null | wc -l | tr -d ' ')
+  echo "  Waiting panes:    ${waiting_count}"
 
   if [ "$waiting_count" -gt 0 ]; then
     echo "  ──────────────────────────────────────────────────────────"
-    for f in "$MANIFEST_DIR"/session_*.state; do
+    for f in "$MANIFEST_DIR"/pane_*.state; do
       [ -f "$f" ] || continue
-      local sess reset_epoch phase
-      sess=$(basename "$f" .state | sed 's/session_//')
-      phase=$(sed -n '1p' "$f")
-      reset_epoch=$(sed -n '2p' "$f")
-      local human_reset
+      local pane session reset_epoch human_reset
+      pane=$(grep '^pane_id=' "$f" | cut -d= -f2-)
+      session=$(grep '^session=' "$f" | cut -d= -f2-)
+      reset_epoch=$(grep '^reset_epoch=' "$f" | cut -d= -f2-)
       human_reset=$(TZ=Asia/Seoul date -r "$reset_epoch" '+%H:%M %Z' 2>/dev/null || date -d "@$reset_epoch" '+%H:%M %Z' 2>/dev/null || echo "epoch:$reset_epoch")
-      echo "    📵 ${sess}: waiting until ${human_reset}"
+      echo "    ${session} ${pane}: waiting until ${human_reset}"
     done
   fi
 
@@ -280,6 +281,15 @@ cmd_autostart() {
 }
 
 # ───────────────────────────────────────────────────────────────
+cmd_verify() {
+  if [ ! -x "${PROJECT_DIR}/gates/verify_nightguardian.sh" ]; then
+    log_error "Master gate not found: ${PROJECT_DIR}/gates/verify_nightguardian.sh"
+    exit 1
+  fi
+  NIGHTGUARDIAN_CLI_VERIFY=1 bash "${PROJECT_DIR}/gates/verify_nightguardian.sh" "$PROJECT_DIR"
+}
+
+# ───────────────────────────────────────────────────────────────
 cmd_notify() {
   local method="${1:-none}"
   log_info "Notification method set to: ${method}"
@@ -309,6 +319,7 @@ case "$command" in
   restart)               cmd_restart ;;
   status)                cmd_status ;;
   logs)                  cmd_logs ;;
+  verify)                cmd_verify ;;
   simulate)              cmd_simulate ;;
   notify)                cmd_notify "$@" ;;
   checkpoint)            cmd_checkpoint "$@" ;;

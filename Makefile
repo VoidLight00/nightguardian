@@ -1,4 +1,4 @@
-.PHONY: install uninstall status start stop test
+.PHONY: install uninstall status start stop test verify
 
 PROJECT_DIR := $(shell pwd)
 RUNTIME_DIR := $(HOME)/.forgechain-nightguardian
@@ -32,8 +32,13 @@ stop:
 # 새 리밋 메시지 형식이 생기면 src/parse_reset.py 의 _selftest cases 에 추가할 것.
 test:
 	@echo "→ shell syntax check"
-	@bash -n src/guardian-watch.sh && bash -n src/nightguardian && echo "  syntax OK"
-	@echo "→ reset-time parser selftest (모든 메시지 형식)"
+	@bash -n src/guardian-watch.sh && bash -n src/nightguardian && bash -n src/keepalive.sh && bash -n tests/integration_tmux.sh && echo "  syntax OK"
+	@echo "→ reset-time parser selftest"
 	@python3 src/parse_reset.py --selftest
-	@echo "→ loop-bug regression selftest (self-trigger / dialog 오탐 방지)"
+	@echo "→ watcher regression selftest"
 	@bash src/guardian-watch.sh --selftest
+	@echo "→ isolated tmux integration"
+	@bash tests/integration_tmux.sh
+
+verify:
+	@bash gates/verify_nightguardian.sh "$(PROJECT_DIR)"

@@ -124,18 +124,30 @@ def parse_relative(text, now):
 
 
 def parse_absolute(text, now):
-    tz = detect_tz(text)
-    tomorrow = bool(re.search(r"\btomorrow\b", text, re.I))
-    low = text.lower()
+    # Absolute times are accepted only near reset/retry context. Pane captures
+    # often contain unrelated meeting times or log timestamps.
+    contexts = re.findall(
+        r"(?:resets?|reset(?:s|ting)?(?:\s+at)?|try\s+again(?:\s+at)?|"
+        r"available(?:\s+at)?|back(?:\s+at)?|wait(?:\s+until)?)"
+        r"[^\n]{0,48}",
+        text,
+        re.I,
+    )
+    if not contexts:
+        return None
+    scoped = "\n".join(contexts)
+    tz = detect_tz(scoped)
+    tomorrow = bool(re.search(r"\btomorrow\b", scoped, re.I))
+    low = scoped.lower()
     for w, (h, mn) in WORD_TIMES.items():
         if re.search(r"\b" + w + r"\b", low):
             return _at_walltime(h, mn, tz, now, tomorrow)
-    m = _T12.search(text)
+    m = _T12.search(scoped)
     if m:
         h = _to24(m.group(1), m.group(3).lower())
         mn = int(m.group(2) or 0)
         return _at_walltime(h, mn, tz, now, tomorrow)
-    m = _T24.search(text)
+    m = _T24.search(scoped)
     if m:
         return _at_walltime(int(m.group(1)), int(m.group(2)), tz, now, tomorrow)
     return None
@@ -174,6 +186,7 @@ def _selftest():
         ("available in 1 hour", "rel", 3600),
         ("resets in 90 minutes", "rel", 90 * 60),
         ("You've hit your session limit. Please wait.", "none", None),
+        ("You've hit your usage limit. reset time unavailable\nstandup moved to 2pm", "none", None),
     ]
     fails = 0
     for text, kind, exp in cases:
