@@ -22,11 +22,11 @@
   },
   "approvals": {
     "images": true,
-    "publish": false,
+    "publish": true,
     "release": false
   },
   "local": {
-    "artifacts": "pending",
+    "artifacts": "complete",
     "version": "pending"
   },
   "remote": {
