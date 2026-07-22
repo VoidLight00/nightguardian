@@ -1,21 +1,39 @@
+[English](README.md) | [한국어](README.ko.md)
+
+<div align="center">
+
 # NightGuardian
 
-NightGuardian safely resumes rate-limited Claude Code sessions running inside tmux. It detects a real limit message, parses the advertised reset time, pins the incident to the exact tmux pane, waits, verifies that the same pane still runs Claude Code, and only then sends a configurable resume prompt.
+**A fail-closed tmux watchdog that safely resumes rate-limited Claude Code panes.**
 
-It is designed for unattended recovery without treating arbitrary terminal text as permission to press Enter.
+![NightGuardian hero](assets/hero.png)
 
-## Features
+[![CI](https://github.com/VoidLight00/nightguardian/actions/workflows/verify.yml/badge.svg)](https://github.com/VoidLight00/nightguardian/actions/workflows/verify.yml)
+[![CodeQL](https://github.com/VoidLight00/nightguardian/actions/workflows/codeql.yml/badge.svg)](https://github.com/VoidLight00/nightguardian/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Bash 3.2+](https://img.shields.io/badge/Bash-3.2%2B-4EAA25.svg)](https://www.gnu.org/software/bash/)
+[![tmux 3.x](https://img.shields.io/badge/tmux-3.x-1BB91F.svg)](https://github.com/tmux/tmux)
+[![macOS](https://img.shields.io/badge/macOS-supported-000000.svg)](https://www.apple.com/macos/)
+[![Linux](https://img.shields.io/badge/Linux-supported-FCC624.svg)](https://www.linux.org/)
 
-- Scans every pane across all tmux sessions
-- Detects hard Claude session, usage, weekly, and API rate-limit messages
-- Parses absolute and relative reset times with timezone support
-- Pins state to the exact tmux pane ID
-- Verifies the Claude process before detection and immediately before resume
-- Fails closed when a pane disappears, changes command, or has no reset time
-- Prevents duplicate retries with pane-scoped state and cooldown files
-- Supports per-session resume prompts
-- Includes isolated tmux integration tests and a fail-closed master QA gate
-- Supports macOS LaunchAgent autostart
+</div>
+
+NightGuardian monitors Claude Code sessions running inside tmux. When it sees a supported hard rate-limit message, it parses the advertised reset time, pins the incident to the exact pane, waits, verifies that the same pane still runs Claude Code, and only then sends a configurable resume prompt.
+
+It is built for unattended recovery without treating arbitrary terminal text as permission to press Enter.
+
+## Highlights
+
+- Scans every pane across every tmux session, not only active panes.
+- Detects hard session, usage, weekly, and API rate-limit messages.
+- Parses absolute and relative reset times with timezone support.
+- Pins state to the immutable tmux pane ID that produced the event.
+- Verifies the Claude process before detection and immediately before resume.
+- Fails closed when a pane disappears, changes command, or has no reset time.
+- Prevents duplicate retries with pane-scoped state, locks, and cooldown files.
+- Supports per-session resume prompts and macOS LaunchAgent autostart.
+- Includes parser, watcher, and isolated tmux integration tests.
 
 ## Safety model
 
@@ -27,9 +45,28 @@ NightGuardian sends terminal input only when all of these conditions hold:
 4. The original pane ID still exists when the reset time arrives.
 5. The original pane still runs Claude Code immediately before input is sent.
 
-If any check fails, NightGuardian logs the reason and sends no keys. It never accepts a session's currently active pane as a substitute for the pane that originally triggered the event.
+If any check fails, NightGuardian logs the reason and sends no keys. It never substitutes whichever pane happens to be active for the pane that originally triggered the event.
 
-Automatic fallback is disabled by default. If Claude changes its message format and no reset time can be parsed, NightGuardian holds instead of guessing.
+Automatic fallback is disabled by default. If Claude changes its message format and no reset time can be parsed, NightGuardian holds instead of guessing. Delayed fallback requires the explicit `GUARDIAN_FALLBACK_MODE=resume` opt-in.
+
+## Architecture
+
+![NightGuardian architecture](assets/architecture.png)
+
+```mermaid
+flowchart LR
+  A[Scan every tmux pane] --> B{Supported hard-limit message?}
+  B -- No --> A
+  B -- Yes --> C{Claude process verified?}
+  C -- No --> H[Hold and log]
+  C -- Yes --> D[Parse reset time and pin pane ID]
+  D --> E[Wait until reset]
+  E --> F{Same pane still runs Claude?}
+  F -- No --> H
+  F -- Yes --> G[Send configured resume prompt]
+  G --> I[Write pane-scoped cooldown and history]
+  I --> A
+```
 
 ## Requirements
 
@@ -51,7 +88,7 @@ make install
 nightguardian start
 ```
 
-`make install` creates:
+`make install` creates symlinks to the checkout:
 
 ```text
 ~/.forgechain-nightguardian/
@@ -61,7 +98,7 @@ nightguardian start
 └── logs/
 ```
 
-Add the CLI directory to your shell if it is not already present:
+Add the CLI directory to your shell if needed:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -74,7 +111,7 @@ nightguardian autostart on
 nightguardian autostart status
 ```
 
-The LaunchAgent runs a small keepalive every 60 seconds. The watcher itself runs in the detached tmux session `forge-night`.
+The LaunchAgent runs a small keepalive every 60 seconds. The watcher runs in the detached tmux session `forge-night`.
 
 ## Usage
 
@@ -88,7 +125,7 @@ nightguardian autostart on
 nightguardian autostart off
 ```
 
-Run the deterministic test suite before relying on unattended resume:
+Before relying on unattended resume, run the deterministic test and verification suites:
 
 ```bash
 make test
@@ -124,14 +161,14 @@ If a session is not listed, the default English resume prompt is used.
 |---|---:|---|
 | `GUARDIAN_CHECK_INTERVAL` | `30` | Seconds between scans |
 | `GUARDIAN_RESUME_COOLDOWN` | `600` | Ignore stale banners after a resume |
-| `GUARDIAN_FALLBACK_MODE` | `hold` | `hold` is fail-closed; set `resume` to opt into delayed fallback |
+| `GUARDIAN_FALLBACK_MODE` | `hold` | `hold` is fail-closed; `resume` opts into delayed fallback |
 | `GUARDIAN_FALLBACK_WAIT` | `1800` | Delay used only when fallback mode is `resume` |
 | `GUARDIAN_ALLOWED_COMMAND_RE` | Claude executable names | Additional executable names allowed to receive input |
 | `GUARDIAN_SKIP_SESSIONS` | empty | Space-separated tmux session globs to ignore |
 | `GUARDIAN_REAP` | `1` | Reap abandoned `claude-retry-*` helper sessions |
 | `GUARDIAN_REAP_IDLE` | `1800` | Minimum detached idle time before reaping |
 
-Be conservative when extending `GUARDIAN_ALLOWED_COMMAND_RE`: it is matched against executable paths/names (`ps comm`), never arbitrary command arguments. A broader pattern increases the set of terminal processes eligible to receive automatic input.
+Be conservative when extending `GUARDIAN_ALLOWED_COMMAND_RE`. It is matched against executable paths and names (`ps comm`), never arbitrary command arguments. A broader pattern increases the set of terminal processes eligible to receive automatic input.
 
 ## State and logs
 
@@ -193,6 +230,12 @@ make uninstall
 
 Runtime logs and manifest files remain under `~/.forgechain-nightguardian/`. Remove that directory manually only if you no longer need its history.
 
+## Gallery
+
+| Detection | Pane verification | Fail-closed recovery |
+|---|---|---|
+| ![Detection concept](assets/gallery-1.png) | ![Pane verification concept](assets/gallery-2.png) | ![Recovery concept](assets/gallery-3.png) |
+
 ## Development
 
 ```bash
@@ -200,8 +243,12 @@ make test
 bash gates/verify_nightguardian.sh .
 ```
 
-`REQUIREMENTS.md` is the requirements SSoT. The master gate discovers every `gates/*_gate.sh` and fails closed if any sub-gate exits non-zero.
+[`REQUIREMENTS.md`](REQUIREMENTS.md) is the requirements SSoT. The master gate discovers every `gates/*_gate.sh` and fails closed if any sub-gate exits non-zero.
+
+## Security
+
+Please report vulnerabilities according to [`.github/SECURITY.md`](.github/SECURITY.md). Do not publish sensitive reports in a public issue.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

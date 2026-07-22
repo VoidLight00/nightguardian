@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "profile": "public-full",
+  "intent": {
+    "visibility": "public",
+    "images": "required",
+    "languages": [
+      "en",
+      "ko"
+    ],
+    "release": "not_requested",
+    "description": "Fail-closed tmux watchdog that safely resumes rate-limited Claude Code panes",
+    "homepage": "",
+    "topics": [
+      "automation",
+      "bash",
+      "claude-code",
+      "macos",
+      "python",
+      "tmux"
+    ]
+  },
+  "approvals": {
+    "images": true,
+    "publish": false,
+    "release": false
+  },
+  "local": {
+    "artifacts": "pending",
+    "version": "pending"
+  },
+  "remote": {
+    "push": "pending",
+    "metadata": "pending",
+    "tag": "not_requested",
+    "release": "not_requested",
+    "verification": "pending"
+  },
+  "result": "incomplete"
+}
